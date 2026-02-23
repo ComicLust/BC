@@ -269,49 +269,57 @@ class BacklinkController extends Controller
 
     public function bulkCheck(Request $request, Project $project)
     {
-        Gate::authorize('update', $project);
+        try {
+            Gate::authorize('update', $project);
 
-        $filter = $request->input('filter', 'all');
+            $filter = $request->input('filter', 'all');
 
-        $query = $project->backlinks();
-        if ($filter === 'active') {
-            $query->where('status', 'active');
-        } elseif ($filter === 'broken') {
-            $query->where('status', 'broken');
-        }
+            $query = $project->backlinks();
+            if ($filter === 'active') {
+                $query->where('status', 'active');
+            } elseif ($filter === 'broken') {
+                $query->where('status', 'broken');
+            }
 
-        $totalBacklinks = $query->count();
+            $totalBacklinks = $query->count();
 
-        if ($totalBacklinks === 0) {
+            if ($totalBacklinks === 0) {
+                return response()->json([
+                    'message' => 'Kontrol edilecek link bulunamadı.',
+                    'status' => 'error'
+                ], 422);
+            }
+
+            // Yeni progress kaydı oluştur
+            $progress = BacklinkCheckProgress::create([
+                'project_id' => $project->id,
+                'total' => $totalBacklinks,
+                'checked' => 0,
+                'status' => 'running',
+                'started_at' => now(),
+            ]);
+
+            // Projenin son kontrol zamanını güncelle
+            $project->update([
+                'last_checked_at' => now()
+            ]);
+
+            // Job'ı kuyruğa at
+            CheckBacklinksJob::dispatch($project, $progress, $filter);
+
+            // Hemen yanıt dön
             return response()->json([
-                'message' => 'Kontrol edilecek link bulunamadı.',
+                'progress_id' => $progress->id,
+                'project_id' => $project->id,
+                'message' => 'Toplu kontrol başlatıldı',
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Bulk Check Error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Hata: ' . $e->getMessage(),
                 'status' => 'error'
-            ], 422);
+            ], 500);
         }
-
-        // Yeni progress kaydı oluştur
-        $progress = BacklinkCheckProgress::create([
-            'project_id' => $project->id,
-            'total' => $totalBacklinks,
-            'checked' => 0,
-            'status' => 'running',
-            'started_at' => now(),
-        ]);
-
-        // Projenin son kontrol zamanını güncelle
-        $project->update([
-            'last_checked_at' => now()
-        ]);
-
-        // Job'ı kuyruğa at
-        CheckBacklinksJob::dispatch($project, $progress, $filter);
-
-        // Hemen yanıt dön
-        return response()->json([
-            'progress_id' => $progress->id,
-            'project_id' => $project->id,
-            'message' => 'Toplu kontrol başlatıldı',
-        ]);
     }
 
     public function export(Request $request, Project $project)
