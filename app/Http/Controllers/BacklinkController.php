@@ -55,7 +55,7 @@ class BacklinkController extends Controller
                 'last_checked_at' => now()
             ]);
 
-            $response = Http::get($backlink->target_url);
+            $response = Http::timeout(30)->get($backlink->target_url);
             if (!$response->successful()) {
                 $details = ['error_reason' => 'HTTP Hatası: ' . $response->status()];
                 $backlink->update([
@@ -148,6 +148,7 @@ class BacklinkController extends Controller
             return redirect()->back()->with('error', 'Backlink bulunamadı.');
 
         } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Check Error: ' . $e->getMessage());
             $details = ['error_reason' => 'Sistem Hatası: ' . $e->getMessage()];
             $backlink->update([
                 'status' => 'broken',
