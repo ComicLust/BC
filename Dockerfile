@@ -33,7 +33,7 @@ COPY . .
 RUN composer install --no-interaction --optimize-autoloader --no-dev
 
 # Frontend Bağımlılıklarını yükle ve derle (NPM)
-RUN npm install && npm run build
+RUN npm install && npm run build && rm -f public/hot
 
 # İzinleri ayarla
 RUN chown -R www-data:www-data /var/www \
