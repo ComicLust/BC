@@ -20,8 +20,11 @@ chmod -R 775 /var/www/storage /var/www/bootstrap/cache
 # Laravel cache temizle
 php artisan optimize:clear
 
-# Migrationları çalıştır (Production'da dikkatli olunmalı, force ile çalıştırıyoruz)
+# Migrationları çalıştır
 php artisan migrate --force
+
+# Seeders'ı çalıştır (Admin kullanıcısını oluşturmak için)
+php artisan db:seed --force
 
 # Storage link oluştur (varsa silip tekrar oluşturur)
 php artisan storage:link

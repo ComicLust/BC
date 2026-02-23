@@ -14,10 +14,15 @@ class AdminUserSeeder extends Seeder
      */
     public function run(): void
     {
+        // Eğer kullanıcı zaten varsa oluşturma
+        if (User::where('email', 'info@tads.online')->exists()) {
+            return;
+        }
+
         User::create([
             'name' => 'Admin',
-            'email' => 'admin@admin.com',
-            'password' => bcrypt('admin'),
+            'email' => 'info@tads.online',
+            'password' => bcrypt('admin123'),
             'is_admin' => true,
             'email_notifications' => true,
             'backlink_status_notifications' => true,
