@@ -1,5 +1,9 @@
 FROM php:8.3-fpm
 
+# Node.js ve NPM yükle (Build aşaması için)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+
 # Gerekli paketleri yükle
 RUN apt-get update && apt-get install -y \
     git \
@@ -25,8 +29,11 @@ WORKDIR /var/www
 # Proje dosyalarını kopyala
 COPY . .
 
-# Bağımlılıkları yükle
+# Bağımlılıkları yükle (Composer)
 RUN composer install --no-interaction --optimize-autoloader --no-dev
+
+# Frontend Bağımlılıklarını yükle ve derle (NPM)
+RUN npm install && npm run build
 
 # İzinleri ayarla
 RUN chown -R www-data:www-data /var/www \
