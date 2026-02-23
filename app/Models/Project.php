@@ -13,6 +13,11 @@ class Project extends Model
         'name',
         'target_url',
         'user_id',
+        'last_checked_at',
+    ];
+
+    protected $casts = [
+        'last_checked_at' => 'datetime',
     ];
 
     public function user()

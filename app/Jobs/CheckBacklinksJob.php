@@ -85,7 +85,7 @@ class CheckBacklinksJob implements ShouldQueue
                 }
 
                 $html = $response->body();
-                $found = $this->checkBacklinkInHtml($html, $backlink);
+                $found = $this->checkBacklinkInHtml($html, $backlink, $response);
 
                 if ($found) {
                     $results[] = $this->createResult($backlink);
@@ -149,71 +149,80 @@ class CheckBacklinksJob implements ShouldQueue
         ];
     }
 
-    private function checkBacklinkInHtml($html, Backlink $backlink)
+    private function checkBacklinkInHtml($html, Backlink $backlink, $response)
     {
         try {
             $sourceUrl = $backlink->source_url;
             $sourceUrlVariations = $this->getUrlVariations($sourceUrl);
 
-            // Tüm linkleri regex ile bul (daha hızlı ve toleranslı)
-            // <a ... href="URL" ... > yapısını yakalar
-            if (preg_match_all('/<a\s+(?:[^>]*?\s+)?href=(["\'])(.*?)\1/i', $html, $matches)) {
-                $foundLinks = $matches[2]; // href değerleri
-
-                foreach ($foundLinks as $href) {
-                    foreach ($sourceUrlVariations as $variation) {
-                        // Basit string kontrolü
-                        if (stripos($href, $variation) !== false) {
-                            
-                            // Anchor text'i bulmaya çalış (opsiyonel)
-                            // Bu href'e sahip linkin içeriğini regex ile çekmeyi deneyebiliriz
-                            // ama şimdilik sadece var olduğunu bilmek yeterli.
-                            
-                            $details = [
-                                'found_url' => $href,
-                                'anchor_text' => 'Bulundu (Regex)', 
-                            ];
-
-                            $backlink->update([
-                                'status' => 'active',
-                                'details' => json_encode($details),
-                                'last_checked_at' => now()
-                            ]);
-                            
-                            return true;
-                        }
-                    }
-                }
-            }
-
-            // Yedek kontrol: DOMDocument (eğer regex kaçırırsa)
             $dom = new DOMDocument();
             libxml_use_internal_errors(true);
-            $loaded = $dom->loadHTML($html, LIBXML_NOERROR | LIBXML_NOWARNING);
+            // HTML'i yükle (UTF-8 desteği için hack)
+            $loaded = $dom->loadHTML('<?xml encoding="UTF-8">' . $html, LIBXML_NOERROR | LIBXML_NOWARNING);
             libxml_clear_errors();
             
             if ($loaded) {
                 $xpath = new DOMXPath($dom);
                 $allLinks = $xpath->query("//a[@href]");
+                $foundLinks = [];
                 
                 foreach ($allLinks as $link) {
+                    if (!$link instanceof \DOMElement) continue;
+                    
                     $href = $link->getAttribute('href');
                     foreach ($sourceUrlVariations as $variation) {
                         if (stripos($href, $variation) !== false) {
-                            $details = [
-                                'anchor_text' => trim($link->textContent),
-                                'found_url' => $href,
-                            ];
-
-                            $backlink->update([
-                                'status' => 'active',
-                                'details' => json_encode($details),
-                                'last_checked_at' => now()
-                            ]);
                             
-                            return true;
+                            // Anchor Text
+                            $anchorText = trim($link->textContent);
+                            if (empty($anchorText)) {
+                                // Resim linki olabilir mi?
+                                $imgs = $link->getElementsByTagName('img');
+                                if ($imgs->length > 0) {
+                                    $img = $imgs->item(0);
+                                    if ($img instanceof \DOMElement) {
+                                        $anchorText = '[Görsel] ' . ($img->getAttribute('alt') ?: 'Alt etiketi yok');
+                                    }
+                                }
+                            }
+
+                            // Rel Attribute
+                            $rel = $link->getAttribute('rel') ?: 'dofollow'; // Varsayılan dofollow
+
+                            $foundLinks[] = [
+                                'anchor_text' => $anchorText,
+                                'rel_attribute' => $rel,
+                                'found_url' => $href
+                            ];
+                            
+                            // Bir varyasyon eşleştiyse diğer varyasyonlara bakmaya gerek yok
+                            break;
                         }
                     }
+                }
+                
+                if (!empty($foundLinks)) {
+                    // Birden fazla link varsa birleştirip gösterelim
+                    $uniqueAnchors = array_unique(array_column($foundLinks, 'anchor_text'));
+                    $uniqueRels = array_unique(array_column($foundLinks, 'rel_attribute'));
+                    
+                    $finalAnchorText = implode(', ', $uniqueAnchors);
+                    $finalRel = implode(', ', $uniqueRels);
+
+                    $details = [
+                        'found_links' => $foundLinks,
+                        'count' => count($foundLinks)
+                    ];
+
+                    $backlink->update([
+                        'status' => 'active',
+                        'details' => json_encode($details),
+                        'last_checked_at' => now(),
+                        'anchor_text' => $finalAnchorText,
+                        'rel_attribute' => $finalRel,
+                    ]);
+                    
+                    return true;
                 }
             }
 

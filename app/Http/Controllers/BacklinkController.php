@@ -76,30 +76,64 @@ class BacklinkController extends Controller
 
             // Tüm linkleri bul
             $allLinks = $xpath->query("//a[@href]");
-            $foundLink = null;
-            $foundUrl = null;
+            $foundLinks = [];
 
             foreach ($allLinks as $link) {
+                if (!$link instanceof \DOMElement) continue;
+
                 $href = $link->getAttribute('href');
                 foreach ($sourceUrlVariations as $variation) {
                     if (str_contains($href, $variation)) {
-                        $foundLink = $link;
-                        $foundUrl = $href;
-                        break 2;
+                        
+                        // Anchor Text
+                        $anchorText = trim($link->textContent);
+                        if (empty($anchorText)) {
+                            // Resim linki olabilir mi?
+                            $imgs = $link->getElementsByTagName('img');
+                            if ($imgs->length > 0) {
+                                $img = $imgs->item(0);
+                                if ($img instanceof \DOMElement) {
+                                     $anchorText = '[Görsel] ' . ($img->getAttribute('alt') ?: 'Alt etiketi yok');
+                                }
+                            }
+                        }
+
+                        // Rel Attribute
+                        $rel = $link->getAttribute('rel') ?: 'dofollow'; // Varsayılan dofollow
+
+                        $foundLinks[] = [
+                            'anchor_text' => $anchorText,
+                            'rel_attribute' => $rel,
+                            'found_url' => $href
+                        ];
+                        
+                        // Bir varyasyon eşleştiyse diğer varyasyonlara bakmaya gerek yok
+                        break;
                     }
                 }
             }
             
-            if ($foundLink) {
+            if (!empty($foundLinks)) {
                 $status = 'active';
+                
+                // Birden fazla link varsa birleştirip gösterelim
+                $uniqueAnchors = array_unique(array_column($foundLinks, 'anchor_text'));
+                $uniqueRels = array_unique(array_column($foundLinks, 'rel_attribute'));
+                
+                $finalAnchorText = implode(', ', $uniqueAnchors);
+                $finalRel = implode(', ', $uniqueRels);
+
                 $details = [
-                    'anchor_text' => trim($foundLink->textContent),
-                    'found_url' => $foundUrl,
+                    'found_links' => $foundLinks,
+                    'count' => count($foundLinks)
                 ];
 
                 $backlink->update([
                     'status' => $status,
-                    'details' => json_encode($details)
+                    'details' => json_encode($details),
+                    'anchor_text' => $finalAnchorText,
+                    'rel_attribute' => $finalRel,
+                    'last_checked_at' => now(),
                 ]);
 
                 return redirect()->back()->with('success', 'Backlink kontrolü tamamlandı.');
@@ -262,6 +296,11 @@ class BacklinkController extends Controller
             'checked' => 0,
             'status' => 'running',
             'started_at' => now(),
+        ]);
+
+        // Projenin son kontrol zamanını güncelle
+        $project->update([
+            'last_checked_at' => now()
         ]);
 
         // Job'ı kuyruğa at

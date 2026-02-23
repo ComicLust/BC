@@ -16,6 +16,14 @@ class Backlink extends Model
         'project_id',
         'last_checked_at',
         'details',
+        'rel_attribute',
+        'anchor_text',
+        'is_indexed',
+    ];
+
+    protected $casts = [
+        'last_checked_at' => 'datetime',
+        'is_indexed' => 'boolean',
     ];
 
     public function project()

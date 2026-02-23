@@ -34,13 +34,71 @@ class ProjectController extends Controller
             ->with('success', 'Proje başarıyla oluşturuldu.');
     }
 
-    public function show(Project $project)
+    public function show(Request $request, Project $project)
     {
         Gate::authorize('view', $project);
         
-        $project->load(['backlinks' => function($query) {
-            $query->latest();
-        }]);
+        $query = $project->backlinks();
+
+        // Filtreleme
+        if ($request->filled('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+        
+        if ($request->filled('rel') && $request->rel !== 'all') {
+            $query->where('rel_attribute', 'like', "%{$request->rel}%");
+        }
+
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('target_url', 'like', "%{$search}%")
+                  ->orWhere('anchor_text', 'like', "%{$search}%");
+            });
+        }
+
+        $backlinks = $query->latest()->get();
+
+        // Analiz İstatistikleri (Tüm veriler üzerinden)
+        $allBacklinks = $project->backlinks;
+        $totalCount = $allBacklinks->count();
+        
+        $analysis = [
+            'brand' => 0,
+            'url' => 0,
+            'keyword' => 0,
+            'empty' => 0,
+        ];
+
+        if ($totalCount > 0) {
+            foreach ($allBacklinks as $bl) {
+                $anchor = mb_strtolower($bl->anchor_text ?? '');
+                $projectName = mb_strtolower($project->name);
+                $targetUrl = mb_strtolower($project->target_url);
+                $domain = parse_url($targetUrl, PHP_URL_HOST);
+
+                if (empty($anchor)) {
+                    $analysis['empty']++;
+                } elseif (str_contains($anchor, $projectName)) {
+                    $analysis['brand']++;
+                } elseif (str_contains($anchor, $domain) || str_contains($anchor, 'http')) {
+                    $analysis['url']++;
+                } else {
+                    $analysis['keyword']++;
+                }
+            }
+
+            // Yüzdelik hesaplama
+            $analysis['brand_percent'] = round(($analysis['brand'] / $totalCount) * 100);
+            $analysis['url_percent'] = round(($analysis['url'] / $totalCount) * 100);
+            $analysis['keyword_percent'] = round(($analysis['keyword'] / $totalCount) * 100);
+            $analysis['empty_percent'] = round(($analysis['empty'] / $totalCount) * 100);
+        } else {
+            $analysis['brand_percent'] = 0;
+            $analysis['url_percent'] = 0;
+            $analysis['keyword_percent'] = 0;
+            $analysis['empty_percent'] = 0;
+        }
 
         $activeProgress = BacklinkCheckProgress::where('project_id', $project->id)
             ->where('status', 'running')
@@ -48,7 +106,7 @@ class ProjectController extends Controller
             ->latest()
             ->first();
 
-        return view('projects.show', compact('project', 'activeProgress'));
+        return view('projects.show', compact('project', 'backlinks', 'activeProgress', 'analysis'));
     }
 
     public function edit(Project $project)
